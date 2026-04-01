@@ -212,6 +212,64 @@ async def google_auth_callback(
     return RedirectResponse(url="/#dashboard?connected=true", status_code=303)
 
 
+@app.post("/api/keys")
+async def create_api_key(
+    name: str = Form(...),
+    user: User = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    plain, hashed, prefix = generate_api_key()
+    api_key = ApiKey(
+        user_id=user.id,
+        key_hash=hashed,
+        key_prefix=prefix,
+        name=name,
+    )
+    session.add(api_key)
+    await session.commit()
+    return {"id": str(api_key.id), "key": plain, "name": name, "prefix": prefix}
+
+
+@app.get("/api/keys")
+async def list_api_keys(
+    user: User = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(ApiKey)
+        .where(ApiKey.user_id == user.id)
+        .order_by(ApiKey.created_at.desc())
+    )
+    keys = result.scalars().all()
+    return [
+        {
+            "id": str(key.id),
+            "name": key.name,
+            "prefix": key.key_prefix,
+            "last_used_at": key.last_used_at.isoformat() if key.last_used_at else None,
+            "created_at": key.created_at.isoformat(),
+        }
+        for key in keys
+    ]
+
+
+@app.delete("/api/keys/{key_id}")
+async def delete_api_key(
+    key_id: str,
+    user: User = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == user.id)
+    )
+    key = result.scalar_one_or_none()
+    if not key:
+        raise HTTPException(status_code=404, detail="Key not found")
+    await session.delete(key)
+    await session.commit()
+    return {"message": "Key revoked"}
+
+
 @app.get("/api/subscription")
 async def get_subscription(
     user: User = Depends(require_auth),
