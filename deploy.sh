@@ -46,28 +46,16 @@ check_doctl() {
     log_info "doctl ready"
 }
 
-# Generate app spec YAML
-create_app_spec() {
-    cat > /tmp/maskai-app.yaml << 'EOF'
-name: maski
-region: nyc
-databases:
-  - engine: PG
-    name: maski-db
-    version: "16"
-workers:
-  - build_command: uv sync
-    environment_slug: python
-    github:
-      branch: main
-      deploy_on_push: true
-      repo: iklobato/app.maskai
-    http_port: 8000
-    instance_count: 1
-    instance_size_slug: basic-xxs
-    name: web
-    run_command: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
-EOF
+# Get app spec from do/app.yaml
+get_app_spec() {
+    local spec_file="do/app.yaml"
+    
+    if [[ ! -f "$spec_file" ]]; then
+        log_error "App spec not found: $spec_file"
+        exit 1
+    fi
+    
+    echo "$spec_file"
 }
 
 # Create new App
@@ -80,10 +68,11 @@ create_app() {
         exit 1
     fi
     
-    create_app_spec
+    local spec_file
+    spec_file=$(get_app_spec)
     
-    log_info "Creating app..."
-    APP_OUTPUT=$(doctl apps create --spec /tmp/maskai-app.yaml 2>&1)
+    log_info "Creating app from: $spec_file"
+    APP_OUTPUT=$(doctl apps create --spec "$spec_file" 2>&1)
     APP_ID=$(echo "$APP_OUTPUT" | grep -oP '(?<=id\s{10})\S+' | head -1 || echo "$APP_OUTPUT" | grep -oP '\b[0-9a-f-]{36}\b' | head -1)
     
     if [[ -z "$APP_ID" ]]; then
@@ -93,7 +82,6 @@ create_app() {
     fi
     
     log_info "App created with ID: $APP_ID"
-    rm /tmp/maskai-app.yaml
     
     echo ""
     log_info "=============================================="
@@ -251,6 +239,10 @@ Prerequisites:
   
   3. Connect GitHub repo:
      doctl apps update --github-repo iklobato/app.maskai --github-branch main
+
+App Spec:
+  The deployment uses do/app.yaml for configuration.
+  Edit that file to customize the app settings.
 
 First deployment:
   ./deploy.sh create
